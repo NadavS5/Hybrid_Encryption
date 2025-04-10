@@ -1,5 +1,8 @@
 import random
 import base64
+from tabnanny import process_tokens
+from time import sleep
+
 from PyQt6.QtWidgets import QApplication, QMainWindow, QLabel, QPushButton, QLineEdit, QGridLayout, QWidget, \
     QRadioButton, QTextBrowser, QComboBox
 from PyQt6.QtGui import QIcon
@@ -30,6 +33,11 @@ rsa = RSA_CLASS()
 DEFAULT_IV = bytes.fromhex("c2dbc239dd4e91b46729d73a27fb57e9")
 print(len(DEFAULT_IV))
 
+
+
+connected_users = ["everyone"]
+
+
 def send_encrypted(s, message):
     print(f"enc: {enc_type} sending: {message}")
     global  pkey
@@ -53,7 +61,7 @@ def recv_encrypted(s):
 
 def log(message):
     formatted_text = f'<span style="color: black;">{message}</span>'
-    win.log_box.append(formatted_text)
+    win.log_box_signal.emit(formatted_text)
 
 
 def err(message):
@@ -67,8 +75,10 @@ def green(message):
 
 
 def text_print(message):
-    win.message_box.append(f'<span style="color: blue;">you-> {message}</span>')
+    win.text_box_signal.emit(f'<span style="color: Aqua;">you-> {message}</span>')
 
+def set_users(users: list[str]):
+    win.online_users_signal.emit(users)
 
 def connect_to_server(address):
     global enc_type
@@ -114,7 +124,7 @@ def connect_to_server(address):
             win.connect_button.setText("Disconnect")
             win.address_box.setEnabled(False)
             win.input_box.setEnabled(True)
-            win.listener()
+            win.start_listener()
 
             isconnected = True
 
@@ -184,12 +194,35 @@ def handle_send_message():
     target = win.users.currentText()
     send_to(target,message)
     win.input_box.setText("")
-    win.text_print(message)
+    text_print(message)
+
+
+def handle_server_message(fields : list[str]):
+    code = fields[0]
+    match code:
+        case "RECV":
+            from_user, message = fields[1:]
+            message = base64.b64decode(message)
+            text_print(f"{from_user}->me: {message}")
+        case "BROD":
+            from_user, message = fields[1:]
+            message = base64.b64decode(message)
+            text_print(f"{from_user}->everyone: {message}")
+        case "NEWU":
+            new_user = fields[1]
+            connected_users.append(new_user)
+            set_users(connected_users)
+        case "REMU":
+            removed_user = fields[1]
+            connected_users.remove(removed_user)
+            set_users(connected_users)
+
 
 
 class Window(QMainWindow):
     log_box_signal = pyqtSignal(str)
     text_box_signal = pyqtSignal(str)
+    online_users_signal = pyqtSignal(list)
 
     def __init__(self):
         window = QMainWindow()
@@ -267,31 +300,35 @@ class Window(QMainWindow):
         self.center_widget.setLayout(self.layout)
         super().setCentralWidget(self.center_widget)
 
-        self.log_box_signal.connect(log)
-        self.text_box_signal.connect(text_print)
+        self.log_box_signal.connect(self._log)
+        self.text_box_signal.connect(self._text_print)
+        self.online_users_signal.connect(self._set_users)
         print("signal ready")
 
-    def log(self, message):
-        self.log_box_signal.emit(message)
+    def _log(self, message):
+        self.log_box.append(message)
+    def _set_users(self, users : list[str]):
+        current = self.users.currentText()
+        self.users.clear()
+        self.users.addItems(users)
+        if current in users:
+            self.users.setCurrentText(current)
 
-    def text_print(self, message):
-        self.text_box_signal.emit(message)
+
+
+    def _text_print(self, message):
+        self.message_box.append(message)
 
     def start_listener(self):
         print("starting listener thread")
         t = threading.Thread(target=self.listener)
         t.start()
-
     def listener(self):
-        self.log("hello from listener")
+        log("listener thread started")
         while True:
-            sock.settimeout(0.1)
-            try:
-                data = recv_encrypted(sock)
-            except socket.timeout:
-                continue
-            except Exception:
-                traceback.print_exc()
+            data = recv_encrypted(sock)
+            handle_server_message(data.decode().split("~"))
+
 
 win = Window()
 win.show()
