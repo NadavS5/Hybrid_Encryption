@@ -3,8 +3,9 @@ import os.path
 import pickle
 import socket
 import threading
+from os import urandom
 
-
+from AsyncMessages import AsyncMessages
 from tcp_by_size import recv_by_size, send_with_size
 import random
 from TCP_AES import recv_with_AES, send_with_AES
@@ -17,22 +18,30 @@ server_sock.bind(("127.0.0.1", 8553))
 server_sock.listen(5)
 
 DEFAULT_IV = bytes.fromhex("c2dbc239dd4e91b46729d73a27fb57e9")
-print(len(DEFAULT_IV))
+
+
+asmgs = AsyncMessages()
 
 def hash_password(username, password, salt):
     return hashlib.sha256(bytes(f"{username}${password}${salt}".encode() )).digest()
 
-#username: (hashed_pass, salt)
+#users: username: (hashed_pass, salt)
 if os.path.isfile("users.pkl"):
     with open("users.pkl", "rb") as f:
         users = pickle.load(f)
 else:
-    hash_pwd = hash_password("nadav", "123", bytes(12387))
+    salt1 = hashlib.sha256(urandom(256)).digest()
+    salt2 = hashlib.sha256(urandom(256)).digest()
+
+    hash_pwd = hash_password("nadav", "123", salt1)
+    hash_pwd2 = hash_password("elay", "123", salt2)
     users = {
-        "nadav": (hash_pwd, bytes(12387))
+        "nadav": (hash_pwd, salt1),
+        "elay":  (hash_pwd2, salt2)
     }
     with open("users.pkl", "wb+") as f:
         pickle.dump(users, f)
+
 
 def send_encrypted(s, enc_type,  message : bytes | bytearray, aes_key = None,  rsa_key = None,):
     print(f"sending: {message}")
@@ -48,17 +57,25 @@ def send_encrypted(s, enc_type,  message : bytes | bytearray, aes_key = None,  r
 
 
 def recv_encrypted(s, enc_type, aes_key = None,rsa_key = None):
+        try:
+            match enc_type:
+                case "none":
+                    return recv_by_size(s)
+                case "aes":
 
-    match enc_type:
-        case "none":
-            return recv_by_size(s)
-        case "aes":
-            return recv_with_AES(s, aes_key, DEFAULT_IV)
-        case "rsa":
-            data = recv_by_size(s)
-            if data == b"" or data == "":
-                return b""
-            return rsa_key.decrypt_RSA(data)
+                    data = recv_with_AES(s, aes_key, DEFAULT_IV)
+
+                    return data
+                case "rsa":
+                    try:
+                        data = recv_by_size(s)
+                        if data == b"" or data == "":
+                            return b""
+                        return rsa_key.decrypt_RSA(data)
+                    except ConnectionError:
+                        return b""
+        except ConnectionError:
+            return b""
 
 
 def exchange_keys(sock : socket.socket) ->int:
@@ -90,10 +107,19 @@ def handle_log_in(username, password) -> bool:
     return True
 
 def handle_sign_up(username, password) -> bool:
-    salt = hashlib.sha256(bytes(random.randint(0,10000000000))).digest()
+    print("1")
+    salt = hashlib.sha256(hashlib.sha256(urandom(256)).digest()).digest()
+    print("2")
     hashed_password = hash_password(username, password, salt)
+    print("3")
+
     if username not in users.keys():
+        print("4")
+
         users[username] = (hashed_password, salt)
+
+        print("dumping to users.pkl")
+        print(users)
         with open("users.pkl", "wb+") as f1:
             pickle.dump(users, f1)
         return True
@@ -108,9 +134,11 @@ def handle_message_code(fields, username):
             target = fields[1]
             message = base64.b64decode(fields[2]).decode()
             print(f"{username} -> {target}: {message}")
-            #asmgs.SendTo(Target, message)
+            asmgs.put_msg_by_user(target, f"RECV~{username}~{fields[2]}".encode())
         case "BROD":
-            pass
+            message = base64.b64decode(fields[1]).decode()
+            print(f"{username} sending to everyone: {message}")
+            asmgs.put_msg_to_all(f"BROD~{username}~{fields[1]}")
     
     
     
@@ -134,20 +162,55 @@ def handle_client(sock: socket.socket):
         rsa.set_other_public(other_public)
         enc_type = "rsa"
 
+    action, uname, password = recv_encrypted(sock, enc_type, aes_key= key,rsa_key= rsa ).decode().split('~')
+    match action:
+        case "LOGN":
 
-    uname, password = recv_encrypted(sock, enc_type, aes_key= key,rsa_key= rsa ).decode().split('~')
-    print(uname)
-    print(password)
+            print(uname)
+            print(password)
+            status = handle_log_in(uname, password)
+            send_encrypted(sock, enc_type, str(status).lower().encode(), aes_key=key,
+                           rsa_key=rsa)
+            if not status:
+                return
 
-    send_encrypted(sock,enc_type, str(handle_log_in(uname, password)).lower().encode(), aes_key=key, rsa_key=rsa )
-    print("main loop")
+        case "SIGN": #sign up
+            print("signing up")
+            status = handle_sign_up(uname, password)
+            send_encrypted(sock, enc_type, str(status).lower().encode(), aes_key=key,
+                           rsa_key=rsa)
+
+            if not status:
+                return
+
+    #anounce to everyone that a new user is connected
+    asmgs.put_msg_to_all(f"NEWU~{uname}")
+
+    asmgs.add_new_user(uname)
+    #send all online users to clients
+    print("sending to user all online users:")
+    for user in asmgs.async_msgs.keys():
+        if user != uname:
+            send_encrypted(sock, enc_type, f"NEWU~{user}".encode(), aes_key=key,
+                           rsa_key=rsa)
+
     while True:
-        data =recv_encrypted(sock, enc_type, aes_key= key,rsa_key= rsa ).decode()
-        if data == "":
-            return
-        
-        fields = data.split('~')
-        handle_message_code(fields, uname)
+        sock.settimeout(0.1)
+        try:
+            data = recv_encrypted(sock, enc_type, aes_key= key,rsa_key= rsa ).decode()
+            if data == "":
+                asmgs.delete_user(uname)
+                asmgs.put_msg_to_all(f"REMU~{uname}".encode())
+                return
+
+            fields = data.split('~')
+            handle_message_code(fields, uname)
+        except socket.timeout:
+            msgs = asmgs.get_async_messages_to_send(uname)
+            if msgs != []:
+                for message in msgs:
+                    send_encrypted(sock, enc_type, message, aes_key=key,rsa_key=rsa)
+            continue
         # print(f"{uname}->{data}")
 
 while True:

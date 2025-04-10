@@ -37,6 +37,25 @@ print(len(DEFAULT_IV))
 
 connected_users = ["everyone"]
 
+def disable_buttons():
+    win.connect_button.setText("Disconnect")
+    win.address_box.setEnabled(False)
+    win.input_box.setEnabled(True)
+    win.sign_up.setVisible(False)
+
+    win.username.setEnabled(False)
+    win.password.setEnabled(False)
+    win.dropdown.setEnabled(False)
+
+def enable_buttons():
+    win.connect_button.setText("Connect")
+    win.address_box.setEnabled(True)
+    win.input_box.setEnabled(True)
+    win.sign_up.setVisible(True)
+
+    win.username.setEnabled(True)
+    win.password.setEnabled(True)
+    win.dropdown.setEnabled(True)
 
 def send_encrypted(s, message):
     print(f"enc: {enc_type} sending: {message}")
@@ -51,13 +70,16 @@ def send_encrypted(s, message):
         case "rsa":
             send_with_size(s, rsa.encrypt_RSA(message))
 def recv_encrypted(s):
-    match enc_type:
-        case "none":
-            return recv_by_size(s)
-        case "aes":
-            return recv_with_AES(s, pkey, DEFAULT_IV)
-        case "rsa":
-            return rsa.decrypt_RSA(recv_by_size(sock))
+    try:
+        match enc_type:
+            case "none":
+                return recv_by_size(s)
+            case "aes":
+                return recv_with_AES(s, pkey, DEFAULT_IV)
+            case "rsa":
+                return rsa.decrypt_RSA(recv_by_size(sock))
+    except ConnectionAbortedError:
+        return  b""
 
 def log(message):
     formatted_text = f'<span style="color: black;">{message}</span>'
@@ -75,16 +97,17 @@ def green(message):
 
 
 def text_print(message):
-    win.text_box_signal.emit(f'<span style="color: Aqua;">you-> {message}</span>')
+    win.text_box_signal.emit(f'<span style="color: Aqua;">{message}</span>')
 
 def set_users(users: list[str]):
     win.online_users_signal.emit(users)
-
-def connect_to_server(address):
+#action: "signup" | "login"
+def connect_to_server(address, action: str):
     global enc_type
     global pkey
     global rsa
     global isconnected
+    global sock
     log("connecting...")
     try:
         sock.connect(("127.0.0.1", PORT))
@@ -118,18 +141,30 @@ def connect_to_server(address):
         return
 
     try:
-        if login(win.username.text(), win.password.text()):
+        match action:
+            case "login":
+                if login(win.username.text(), win.password.text()):
 
-            print(address)
-            win.connect_button.setText("Disconnect")
-            win.address_box.setEnabled(False)
-            win.input_box.setEnabled(True)
-            win.start_listener()
+                    print(address)
+                    disable_buttons()
 
-            isconnected = True
+                    isconnected = True
 
-        else:
-            sock.close()
+                else:
+                    sock.close()
+                    sock = socket.socket()
+                    return
+            case "signup":
+                if sign_up(win.username.text(), win.password.text()):
+                    disable_buttons()
+
+                    isconnected = True
+                else:
+                    sock.close()
+                    sock = socket.socket()
+                    return
+
+        win.start_listener()
     except Exception as ex:
         print("login failed")
         print(traceback.format_exc())
@@ -137,16 +172,19 @@ def connect_to_server(address):
     # win.message_box.setText("connecting...")
 
 
-def disconnect_from_server(address):
+def disconnect_from_server():
+    global sock
+    global isconnected
     print("disconnecting...")
     isconnected = False
     sock.close()
-    win.connect_button.setText("Connect To Server")
+    sock = socket.socket()
 
+    enable_buttons()
 def send_to(target: str, message : str):
     
     b64_message = base64.b64encode(message.encode()).decode()
-    
+    print(f"sending message to {target} message: {message} b64_message: {b64_message}")
     if target == 'everyone':
             send_encrypted(sock, f"BROD~{b64_message}")
     else:
@@ -163,7 +201,17 @@ def toggle_password_visible(checked: bool):
 
 
 def login(name, password):
-    send_encrypted(sock, f"{name}~{password}")
+    send_encrypted(sock, f"LOGN~{name}~{password}")
+    success = recv_encrypted(sock).decode()
+    if success == "true":
+        green("login succeeded")
+        return True
+    else:
+        err("name or password not currect")
+        return False
+
+def sign_up(name, password):
+    send_encrypted(sock, f"SIGN~{name}~{password}")
     success = recv_encrypted(sock).decode()
     if success == "true":
         green("login succeeded")
@@ -194,7 +242,7 @@ def handle_send_message():
     target = win.users.currentText()
     send_to(target,message)
     win.input_box.setText("")
-    text_print(message)
+    text_print(f"you->{target}: {message}")
 
 
 def handle_server_message(fields : list[str]):
@@ -202,20 +250,22 @@ def handle_server_message(fields : list[str]):
     match code:
         case "RECV":
             from_user, message = fields[1:]
-            message = base64.b64decode(message)
+            message = base64.b64decode(message).decode()
             text_print(f"{from_user}->me: {message}")
         case "BROD":
             from_user, message = fields[1:]
-            message = base64.b64decode(message)
+            message = base64.b64decode(message).decode()
             text_print(f"{from_user}->everyone: {message}")
         case "NEWU":
             new_user = fields[1]
             connected_users.append(new_user)
             set_users(connected_users)
+            text_print(f"{new_user} connected")
         case "REMU":
             removed_user = fields[1]
             connected_users.remove(removed_user)
             set_users(connected_users)
+            text_print(f"{removed_user} diconnected")
 
 
 
@@ -264,21 +314,19 @@ class Window(QMainWindow):
 
         self.connect_button = QPushButton("Connect")
         self.connect_button.setFixedSize(100, 50)
-        self.connect_button.clicked.connect(lambda _: connect_to_server(
-        address=self.address_box.text() if not isconnected else disconnect_from_server(self.address_box.text())))
+        self.connect_button.clicked.connect(lambda _: connect_to_server( address=self.address_box.text(),action="login") if not isconnected else disconnect_from_server())
         self.layout.addWidget(self.connect_button, 1, 0, Qt.AlignmentFlag.AlignLeft)
 
         self.sign_up = QPushButton("Sign Up")
         self.sign_up.setFixedSize(100, 50)
-        # self.sign_up.clicked.connect(lambda _: connect_to_server(
-        # address=self.address_box.text() if not isconnected else disconnect_from_server(self.address_box.text())))
+        self.sign_up.clicked.connect(lambda _: connect_to_server( address=self.address_box.text(),action="signup") if not isconnected else disconnect_from_server())
         self.layout.addWidget(self.sign_up, 1, 1, Qt.AlignmentFlag.AlignLeft)
 
         self.message_box = QTextBrowser()
         self.layout.addWidget(self.message_box, 2, 1)
 
         self.users = QComboBox()
-        self.users.addItems(["everyone", "nadav", "elay"])
+        self.users.addItems(["everyone"])
         self.layout.addWidget(self.users, 3, 0, Qt.AlignmentFlag.AlignCenter)
 
 
@@ -324,9 +372,12 @@ class Window(QMainWindow):
         t = threading.Thread(target=self.listener)
         t.start()
     def listener(self):
+        global isconnected
         log("listener thread started")
-        while True:
+        while isconnected:
             data = recv_encrypted(sock)
+            if data ==b"":
+                return
             handle_server_message(data.decode().split("~"))
 
 
