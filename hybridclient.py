@@ -1,5 +1,5 @@
 import random
-
+import base64
 from PyQt6.QtWidgets import QApplication, QMainWindow, QLabel, QPushButton, QLineEdit, QGridLayout, QWidget, \
     QRadioButton, QTextBrowser, QComboBox
 from PyQt6.QtGui import QIcon
@@ -131,6 +131,14 @@ def disconnect_from_server(address):
     sock.close()
     win.connect_button.setText("Connect To Server")
 
+def send_to(target: str, message : str):
+    
+    b64_message = base64.b64encode(message.encode()).decode()
+    
+    if target == 'everyone':
+            send_encrypted(sock, f"BROD~{b64_message}")
+    else:
+        send_encrypted(sock, f"SEND~{target}~{b64_message}")
 
 def toggle_password_visible(checked: bool):
     global password_visible
@@ -166,15 +174,13 @@ def exchange_keys():
     s = (A **b) % p
     pkey = s
     return s
-def send_message(message):
-    send_encrypted(sock, message)
-    # win.log(f"sending: {message}")
 
 
 @QtCore.pyqtSlot()
 def handle_send_message():
     message = win.input_box.text()
-    send_message(message)
+    target = win.users.currentText()
+    send_to(target,message)
     win.input_box.setText("")
     win.text_print(message)
 

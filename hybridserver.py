@@ -10,6 +10,7 @@ import random
 from TCP_AES import recv_with_AES, send_with_AES
 from rsa_lib import RSA_CLASS
 
+import base64
 
 server_sock = socket.socket()
 server_sock.bind(("127.0.0.1", 8553))
@@ -93,7 +94,22 @@ def handle_sign_up(username, password) -> bool:
             pickle.dump(users, f1)
         return True
     return False
-
+def handle_message_code(fields, username):
+    code = fields[0]
+    print("FIELDS:-----------")
+    print(fields)
+    match code:
+        case "SEND":
+            pass
+            target = fields[1]
+            message = base64.b64decode(fields[2]).decode()
+            print(f"{username} -> {target}: {message}")
+            #asmgs.SendTo(Target, message)
+        case "BROD":
+            pass
+    
+    
+    
 def handle_client(sock: socket.socket):
     key = 0
     rsa = 0
@@ -122,10 +138,13 @@ def handle_client(sock: socket.socket):
     send_encrypted(sock,enc_type, str(handle_log_in(uname, password)).lower().encode(), aes_key=key, rsa_key=rsa )
     print("main loop")
     while True:
-        data = recv_encrypted(sock, enc_type, aes_key= key,rsa_key= rsa )
-        if data == b"":
+        data =recv_encrypted(sock, enc_type, aes_key= key,rsa_key= rsa ).decode()
+        if data == "":
             return
-        print(f"{uname}->{data}")
+        
+        fields = data.split('~')
+        handle_message_code(fields, uname)
+        # print(f"{uname}->{data}")
 
 while True:
     client, addr = server_sock.accept()
