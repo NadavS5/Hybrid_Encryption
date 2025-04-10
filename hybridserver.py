@@ -100,10 +100,15 @@ def exchange_keys(sock : socket.socket) ->int:
     return s
 
 def handle_log_in(username, password) -> bool:
-    salt = users[username][1]
-    if users[username][0] != hash_password(username, password, salt):
+
+    if username in users.keys():
+
+        salt = users[username][1]
+        if users[username][0] != hash_password(username, password, salt):
+            return False
+        return True
+    else:
         return False
-    return True
 
 def handle_sign_up(username, password) -> bool:
     salt = hashlib.sha256(hashlib.sha256(urandom(256)).digest()).digest()
