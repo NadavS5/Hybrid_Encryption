@@ -47,6 +47,7 @@ def disable_buttons():
     win.password.setEnabled(False)
     win.dropdown.setEnabled(False)
 
+    set_users(["everyone"])
 def enable_buttons():
     win.connect_button.setText("Connect")
     win.address_box.setEnabled(True)
@@ -56,6 +57,8 @@ def enable_buttons():
     win.username.setEnabled(True)
     win.password.setEnabled(True)
     win.dropdown.setEnabled(True)
+
+    set_users(["everyone"])
 
 def send_encrypted(s, message):
     print(f"enc: {enc_type} sending: {message}")
@@ -179,8 +182,8 @@ def disconnect_from_server():
     isconnected = False
     sock.close()
     sock = socket.socket()
-
     enable_buttons()
+
 def send_to(target: str, message : str):
     
     b64_message = base64.b64encode(message.encode()).decode()

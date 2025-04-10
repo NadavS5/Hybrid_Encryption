@@ -44,7 +44,6 @@ else:
 
 
 def send_encrypted(s, enc_type,  message : bytes | bytearray, aes_key = None,  rsa_key = None,):
-    print(f"sending: {message}")
 
     match enc_type:
 
@@ -107,27 +106,22 @@ def handle_log_in(username, password) -> bool:
     return True
 
 def handle_sign_up(username, password) -> bool:
-    print("1")
     salt = hashlib.sha256(hashlib.sha256(urandom(256)).digest()).digest()
-    print("2")
     hashed_password = hash_password(username, password, salt)
-    print("3")
 
     if username not in users.keys():
-        print("4")
 
         users[username] = (hashed_password, salt)
 
-        print("dumping to users.pkl")
-        print(users)
+        # print("dumping to users.pkl")
+        # print(users)
         with open("users.pkl", "wb+") as f1:
             pickle.dump(users, f1)
         return True
     return False
 def handle_message_code(fields, username):
     code = fields[0]
-    print("FIELDS:-----------")
-    print(fields)
+    # print(fields)
     match code:
         case "SEND":
             pass
@@ -146,19 +140,19 @@ def handle_client(sock: socket.socket):
     key = 0
     rsa = 0
 
-    print("connection")
+    # print("connection")
     enc_type = recv_by_size(client).decode()
-    print(f"enc_type = {enc_type}")
+    # print(f"enc_type = {enc_type}")
 
     if enc_type != "none":
         key = exchange_keys(sock)
         key = hashlib.sha256(bytes(key)).digest()
-        print(key)
+        # print(key)
     if enc_type == "rsa":
         rsa = RSA_CLASS()
         send_encrypted(sock, "aes",  rsa.public_key, aes_key= key)
         other_public = recv_encrypted(sock,  "aes", aes_key = key)
-        print(other_public)
+        # print(other_public)
         rsa.set_other_public(other_public)
         enc_type = "rsa"
 
@@ -166,14 +160,14 @@ def handle_client(sock: socket.socket):
     match action:
         case "LOGN":
 
-            print(uname)
-            print(password)
+            # print(uname)
+            # print(password)
             status = handle_log_in(uname, password)
             send_encrypted(sock, enc_type, str(status).lower().encode(), aes_key=key,
                            rsa_key=rsa)
             if not status:
                 return
-
+            print(f"{uname} logged in")
         case "SIGN": #sign up
             print("signing up")
             status = handle_sign_up(uname, password)
@@ -182,13 +176,14 @@ def handle_client(sock: socket.socket):
 
             if not status:
                 return
+            print(f"{uname} signed up")
 
     #anounce to everyone that a new user is connected
     asmgs.put_msg_to_all(f"NEWU~{uname}")
 
     asmgs.add_new_user(uname)
     #send all online users to clients
-    print("sending to user all online users:")
+    # print("sending to user all online users:")
     for user in asmgs.async_msgs.keys():
         if user != uname:
             send_encrypted(sock, enc_type, f"NEWU~{user}".encode(), aes_key=key,
@@ -199,6 +194,7 @@ def handle_client(sock: socket.socket):
         try:
             data = recv_encrypted(sock, enc_type, aes_key= key,rsa_key= rsa ).decode()
             if data == "":
+                print(f"{uname} left")
                 asmgs.delete_user(uname)
                 asmgs.put_msg_to_all(f"REMU~{uname}".encode())
                 return
