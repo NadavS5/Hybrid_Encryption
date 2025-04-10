@@ -48,13 +48,17 @@ def send_encrypted(s, enc_type,  message : bytes | bytearray, aes_key = None,  r
 
 
 def recv_encrypted(s, enc_type, aes_key = None,rsa_key = None):
+
     match enc_type:
         case "none":
             return recv_by_size(s)
         case "aes":
             return recv_with_AES(s, aes_key, DEFAULT_IV)
         case "rsa":
-            return rsa_key.decrypt_RSA(recv_by_size(s))
+            data = recv_by_size(s)
+            if data == b"" or data == "":
+                return b""
+            return rsa_key.decrypt_RSA(data)
 
 
 def exchange_keys(sock : socket.socket) ->int:

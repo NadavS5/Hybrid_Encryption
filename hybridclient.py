@@ -74,6 +74,7 @@ def connect_to_server(address):
     global enc_type
     global pkey
     global rsa
+    global isconnected
     log("connecting...")
     try:
         sock.connect(("127.0.0.1", PORT))
@@ -109,13 +110,13 @@ def connect_to_server(address):
     try:
         if login(win.username.text(), win.password.text()):
 
-            isconnected = True
             print(address)
             win.connect_button.setText("Disconnect")
             win.address_box.setEnabled(False)
             win.input_box.setEnabled(True)
             win.listener()
 
+            isconnected = True
 
         else:
             sock.close()
@@ -127,6 +128,7 @@ def connect_to_server(address):
 
 
 def disconnect_from_server(address):
+    print("disconnecting...")
     isconnected = False
     sock.close()
     win.connect_button.setText("Connect To Server")
@@ -233,11 +235,11 @@ class Window(QMainWindow):
         address=self.address_box.text() if not isconnected else disconnect_from_server(self.address_box.text())))
         self.layout.addWidget(self.connect_button, 1, 0, Qt.AlignmentFlag.AlignLeft)
 
-        self.connect_button = QPushButton("Sign Up")
-        self.connect_button.setFixedSize(100, 50)
-        self.connect_button.clicked.connect(lambda _: connect_to_server(
-        address=self.address_box.text() if not isconnected else disconnect_from_server(self.address_box.text())))
-        self.layout.addWidget(self.connect_button, 1, 1, Qt.AlignmentFlag.AlignLeft)
+        self.sign_up = QPushButton("Sign Up")
+        self.sign_up.setFixedSize(100, 50)
+        # self.sign_up.clicked.connect(lambda _: connect_to_server(
+        # address=self.address_box.text() if not isconnected else disconnect_from_server(self.address_box.text())))
+        self.layout.addWidget(self.sign_up, 1, 1, Qt.AlignmentFlag.AlignLeft)
 
         self.message_box = QTextBrowser()
         self.layout.addWidget(self.message_box, 2, 1)
@@ -282,7 +284,14 @@ class Window(QMainWindow):
 
     def listener(self):
         self.log("hello from listener")
-
+        while True:
+            sock.settimeout(0.1)
+            try:
+                data = recv_encrypted(sock)
+            except socket.timeout:
+                continue
+            except Exception:
+                traceback.print_exc()
 
 win = Window()
 win.show()
