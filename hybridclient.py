@@ -38,6 +38,7 @@ print(len(DEFAULT_IV))
 connected_users = ["everyone"]
 
 def disable_buttons():
+    global connected_users
     win.connect_button.setText("Disconnect")
     win.address_box.setEnabled(False)
     win.input_box.setEnabled(True)
@@ -47,6 +48,7 @@ def disable_buttons():
     win.password.setEnabled(False)
     win.dropdown.setEnabled(False)
 
+    connected_users = ["everyone"]
     set_users(["everyone"])
 def enable_buttons():
     win.connect_button.setText("Connect")
@@ -58,6 +60,7 @@ def enable_buttons():
     win.password.setEnabled(True)
     win.dropdown.setEnabled(True)
 
+    connected_users = ["everyone"]
     set_users(["everyone"])
 
 def send_encrypted(s, message):
